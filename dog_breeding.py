@@ -18,19 +18,20 @@ def read_labels(file):
         dic[row.split(",")[0]]  = row.split(",")[1].rstrip() #rstrip(): eliminate "\n"
   return dic
 
-image_names= os.listdir("./train")
-label_dic = read_labels("labels.csv")
+image_names= os.listdir("../train")
+label_dic = read_labels("../labels.csv")
 
 labels = []
 images =[]
-
+ 
 for name in image_names[1:]:
     # number of dimensionality should be the same for all images
-    images.append(cv2.resize(cv2.imread("./train/"+name,0), (30, 30)).reshape(1,30,30))
+#    print "../train_mini/"+name
+    images.append(cv2.resize(cv2.imread("../train/"+name,0), (20, 20)).reshape(1,20,20))
     labels.append(label_dic[os.path.splitext(name)[0]])
 
 images = np.asarray(images)
-
+print "hererer",len(images)
 
 
 """
@@ -74,17 +75,18 @@ class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv2d(1,64, kernel_size=5),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(1,34, kernel_size=5,padding= 2),
+            nn.Dropout2d(),
+            nn.BatchNorm2d(34),
             nn.ReLU(),
             nn.MaxPool2d(2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=5),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(34, 68, kernel_size=5,padding= 2),
+            nn.BatchNorm2d(68),
             nn.ReLU(),
             nn.MaxPool2d(2))
-        self.fc1 = nn.Linear(2048,1025)
-        self.fc2 = nn.Linear(1025,num_breeds)
+        self.fc1 = nn.Linear(1700,300)
+        self.fc2 = nn.Linear(300,num_breeds)
 
     def forward(self, x):
         out = self.layer1(x)
@@ -93,17 +95,18 @@ class CNN(nn.Module):
         #print out.data.shape
         out = out.view(out.size(0), -1)
         #print out.data.shape
-        out = self.fc1(out)
-        out = self.fc2(out)
+        out =self.fc1(out)
+        #out = F.dropout(out)
+        #out = self.fc2(out)
         return F.log_softmax(out)
 
-    def accuracy(self):
-        for i, (images_val, labels_val) in enumerate(val_loader):
+    def accuracy(self,outputs,labels):
+        #for i, (images_val, labels_val) in enumerate(val_loader):
 
             # print images.shape
-            images = Variable(images_val).float()
-            labels = Variable(labels_val).float().type(torch.LongTensor)
-            outputs = CNN(images)
+         #   images_val = Variable(images_val).float()
+          #  labels_val = Variable(labels_val).float().type(torch.LongTensor)
+          #  outputs_val = CNN(images_val)
 
         inference =  np.argmax(outputs.data.numpy(),axis=1)
         answers = labels.data.numpy()
@@ -111,21 +114,25 @@ class CNN(nn.Module):
         return  np.sum(correction)/float(len(correction))
 
 CNN = CNN()
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(CNN.parameters(), lr=0.001, momentum=0.9)
+#criterion = nn.CrossEntropyLoss()
+#optimizer = optim.SGD(CNN.parameters(), lr=0.001, momentum=0.9)
 
 
 """
 Training
 """
-batch_size = 1000
-learning_rate =0.001
+batch_size = 100
+learning_rate =0.01
 # Data Loader (Input Pipeline)
 train = torch.utils.data.TensorDataset(torch.from_numpy(X_train), torch.from_numpy(Y_train))
 train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
 
 val = torch.utils.data.TensorDataset(torch.from_numpy(X_validation), torch.from_numpy(Y_validation))
 val_loader = torch.utils.data.DataLoader(val, batch_size=len(X_validation), shuffle=True)
+
+test = torch.utils.data.TensorDataset(torch.from_numpy(X_test), torch.from_numpy(Y_test))
+test_loader = torch.utils.data.DataLoader(test, batch_size=len(X_test), shuffle=True)
+
 
 #print train_loader
 #test = torch.utils.data.TensorDataset(torch.from_numpy(X_test), torch.from_numpy(Y_test))
@@ -134,7 +141,7 @@ val_loader = torch.utils.data.DataLoader(val, batch_size=len(X_validation), shuf
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(CNN.parameters(), lr=learning_rate)
 
-for epoch in range(100):  # loop over the dataset multiple times
+for epoch in range(250):  # loop over the dataset multiple times
     running_loss = 0.0
     for i, (images, labels) in enumerate(train_loader):
         #print images.shape
@@ -152,11 +159,22 @@ for epoch in range(100):  # loop over the dataset multiple times
         running_loss += loss.data[0]
         #if i % 100 == 99:    # print every 2000 mini-batches
 
-        accuracy = CNN.accuracy()
-        print
-        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 2000))
-        print "accuracy :",accuracy
-        running_loss = 0.0
-        i += 1
+    accuracy = CNN.accuracy(outputs,labels)
+    print
+    print "epoch :",epoch
+    print 'loss:' ,float(running_loss) / 2000
+    print "accuracy :",accuracy
+    running_loss = 0.0
+ 
 print('Finished Training')
-
+for i, (images, labels) in enumerate(test_loader):
+        #print images.shape
+        images = Variable(images).float()
+        labels = Variable(labels).float().type(torch.LongTensor)
+        # Forward + Backward + Optimize
+        optimizer.zero_grad()
+        outputs = CNN(images)
+inference =  np.argmax(outputs.data.numpy(),axis=1)
+answers = labels.data.numpy()
+correction =  np.equal(inference,answers)
+print  np.sum(correction)/float(len(correction))
