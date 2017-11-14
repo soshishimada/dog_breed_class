@@ -25,7 +25,7 @@ labels = []
 images =[]
 
 for name in image_names[1:]:
-
+    # number of dimensionality should be the same for all images
     images.append(cv2.resize(cv2.imread("./train/"+name,0), (30, 30)).reshape(1,30,30))
     labels.append(label_dic[os.path.splitext(name)[0]])
 
@@ -34,7 +34,7 @@ images = np.asarray(images)
 
 
 """
-1-of-k representation
+Assign numbers for each labels
 """
 
 tmp_labels = labels
@@ -97,8 +97,15 @@ class CNN(nn.Module):
         out = self.fc2(out)
         return F.log_softmax(out)
 
-    def accuracy(self,output,labels):
-        inference =  np.argmax(output.data.numpy(),axis=1)
+    def accuracy(self):
+        for i, (images_val, labels_val) in enumerate(val_loader):
+
+            # print images.shape
+            images = Variable(images_val).float()
+            labels = Variable(labels_val).float().type(torch.LongTensor)
+            outputs = CNN(images)
+
+        inference =  np.argmax(outputs.data.numpy(),axis=1)
         answers = labels.data.numpy()
         correction =  np.equal(inference,answers)
         return  np.sum(correction)/float(len(correction))
@@ -115,9 +122,11 @@ batch_size = 1000
 learning_rate =0.001
 # Data Loader (Input Pipeline)
 train = torch.utils.data.TensorDataset(torch.from_numpy(X_train), torch.from_numpy(Y_train))
-#print "------------------------"
-#print train
 train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
+
+val = torch.utils.data.TensorDataset(torch.from_numpy(X_validation), torch.from_numpy(Y_validation))
+val_loader = torch.utils.data.DataLoader(val, batch_size=len(X_validation), shuffle=True)
+
 #print train_loader
 #test = torch.utils.data.TensorDataset(torch.from_numpy(X_test), torch.from_numpy(Y_test))
 #test_loader = torch.utils.data.DataLoader(train, batch_size=100, shuffle=True)
@@ -143,10 +152,11 @@ for epoch in range(100):  # loop over the dataset multiple times
         running_loss += loss.data[0]
         #if i % 100 == 99:    # print every 2000 mini-batches
 
-        accuracy = CNN.accuracy(outputs,labels)
+        accuracy = CNN.accuracy()
         print
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 2000))
         print "accuracy :",accuracy
         running_loss = 0.0
         i += 1
 print('Finished Training')
+
