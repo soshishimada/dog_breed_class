@@ -10,7 +10,7 @@ import torch.optim as optim
 import torch.utils.data
 from torchvision import models
 
-
+print "GPU",torch.cuda.is_available()
 def read_labels(file):
   dic = {}
   with open(file) as f:
@@ -19,15 +19,15 @@ def read_labels(file):
         dic[row.split(",")[0]]  = row.split(",")[1].rstrip() #rstrip(): eliminate "\n"
   return dic
 
-image_names= os.listdir("./train")
-label_dic = read_labels("labels.csv")
+image_names= os.listdir("../train")
+label_dic = read_labels("../labels.csv")
 
 labels = []
 images =[]
 
 for name in image_names[1:]:
     # number of dimensionality should be the same for all images
-    images.append(cv2.resize(cv2.imread("./train/"+name,0), (30, 30)).reshape(1,30,30))
+    images.append(cv2.resize(cv2.imread("../train/"+name), (60, 60)).reshape(3,60,60))
     labels.append(label_dic[os.path.splitext(name)[0]])
 
 images = np.asarray(images)
@@ -65,65 +65,84 @@ Model Definition
 
 
 
-def accuracy(self):
-        for i, (images_val, labels_val) in enumerate(val_loader):
+def accuracy():
+	correct = 0
+	total = 0
+	for images_val, labels_val in test_loader:
+    		images_val = Variable(images_val.cuda()).float()
+        	outputs_val = model_ft(images_val)
+        #outputs = avgpool(outputs)
+        	outputs_val = outputs_val.view(outputs_val.size(0), -1)
+        	outputs_val = fc(outputs_val)    		
+		_, predicted = torch.max(outputs_val.data, 1)
+    		total += labels_val.size(0)
+    		correct += (predicted.cpu() == labels_val).sum() 
+
+        print "accuracy :",float(correct)/total 
+"""  
+      for i, (images_val, labels_val) in enumerate(val_loader):
 
             # print images.shape
-            images = Variable(images_val).float()
-            labels = Variable(labels_val).float().type(torch.LongTensor)
-            outputs = CNN(images)
+            images_val = Variable(images_val.cuda()).float()
+            labels_val = Variable(labels_val.cuda()).float().type(torch.cuda.LongTensor)
+            outputs_val = model_ft(images_val)
+	    outputs_val = outputs_val.view(outputs_val.size(0), -1)
+            outputs_val = fc(outputs_val)
+	    _, predicted = torch.max(outputs_val.data, 1)	    
+	    total += labels_val.size(0)
+            correct += (predicted == labels_val).sum()
 
-        inference =  np.argmax(outputs.data.numpy(),axis=1)
-        answers = labels.data.numpy()
-        correction =  np.equal(inference,answers)
-        return  np.sum(correction)/float(len(correction))
+"""	
 
 
-class Resnet(nn.Module):
-  def __init__(self):
-    super(Resnet,self).__init__()
-    resnet = models.resnet101(pretrained=True)
-    #self.resnet = nn.Sequential(*list(resnet.children())[:-2])
-    self.fc = nn.Linear(2048,num_breeds)
+        #k\inference =  np.argmax(outputs_val,axis=1)
+        #values, indices = torch.max(outputs_val, 1)
+        #correction =  torch.equal(indices,labels_val)
+        #return  np.sum(correction)/float(len(correction))
 
-  def forward(self,x):
-    x = self.resnet(x)
-    x = self.fc(x)
-    return x
+model_ft=models.resnet18(pretrained=True)
+model_ft = nn.Sequential(*list(model_ft.children())[:-2])
+#num_ftrs = model_ft.fc.in_features
+avgpool = nn.AvgPool2d(7,padding = 1)
+fc = nn.Linear(2048,num_breeds)
 
-Resnet = Resnet()
+model_ft = model_ft.cuda()
+avgpool = avgpool.cuda()
+fc = fc.cuda()
 
 """
 Training
 """
-batch_size = 1000
+batch_size = 500
 learning_rate =0.001
 # Data Loader (Input Pipeline)
 train = torch.utils.data.TensorDataset(torch.from_numpy(X_train), torch.from_numpy(Y_train))
-train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
+train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=False)
 
-val = torch.utils.data.TensorDataset(torch.from_numpy(X_validation), torch.from_numpy(Y_validation))
-val_loader = torch.utils.data.DataLoader(val, batch_size=len(X_validation), shuffle=True)
+test = torch.utils.data.TensorDataset(torch.from_numpy(X_test), torch.from_numpy(Y_test))
+test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size, shuffle=False)
 
 #print train_loader
 #test = torch.utils.data.TensorDataset(torch.from_numpy(X_test), torch.from_numpy(Y_test))
 #test_loader = torch.utils.data.DataLoader(train, batch_size=100, shuffle=True)
 # Loss and Optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(Resnet.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(model_ft.parameters(), lr=learning_rate)
 
-for epoch in range(100):  # loop over the dataset multiple times
+for epoch in range(200):  # loop over the dataset multiple times
     running_loss = 0.0
     for i, (images, labels) in enumerate(train_loader):
         #print images.shape
-        images = Variable(images).float()
-        labels = Variable(labels).float().type(torch.LongTensor)
+        images = Variable(images.cuda()).float()
+        labels = Variable(labels.cuda()).float().type(torch.cuda.LongTensor)
 
         # Forward + Backward + Optimize
         optimizer.zero_grad()
-
-        outputs = Resnet(images)
-
+	#print images.data.numpy().size
+        outputs = model_ft(images)
+        #outputs = avgpool(outputs)
+        outputs = outputs.view(outputs.size(0), -1)
+	outputs = fc(outputs)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -131,11 +150,9 @@ for epoch in range(100):  # loop over the dataset multiple times
         running_loss += loss.data[0]
         #if i % 100 == 99:    # print every 2000 mini-batches
 
-        accuracy = accuracy()
-        print
-        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 2000))
-        print "accuracy :",accuracy
-        running_loss = 0.0
-        i += 1
-print('Finished Training')
+    print
+    print "epochs :",epoch
+    print "loss :", float(running_loss) / 2000
+    accuracy()
 
+print('Finished Training')
